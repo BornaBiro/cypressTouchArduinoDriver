@@ -80,18 +80,26 @@ int CypressTouch::begin(TwoWire *_touchI2C, Inkplate *_display)
         printError(&Serial, "Failed to exit bootloader mode!");
     }
 
+    handshake();
+
     // Set mode to system info mode.
     if (!setSysInfoMode(&_sysData))
     {
         printDebug(&Serial, "Failed to enter system info mode");
     }
 
+    handshake();
+
     setSysInfoRegs(&_sysData);
+
+    handshake();
 
     sendCommand(CYPRESS_TOUCH_OPERATE_MODE);
 
+    handshake();
+
     uint8_t _distDefaultValue = 0xF8;
-    writeI2CRegs(0x1E, &_distDefaultValue ,1);
+    writeI2CRegs(0x1E, &_distDefaultValue, 1);
 
     // Everything went ok? Return 1 for success.
     return 1;
@@ -170,7 +178,7 @@ bool CypressTouch::exitBootLoaderMode()
     writeI2CRegs(CYPRESS_TOUCH_BASE_ADDR, _blCommandArry, sizeof(_blCommandArry));
 
     // Wait a little bit.
-    delay(50);
+    delay(250);
 
     // Get bootloader data.
     struct cyttsp_bootloader_data _bootloaderData;
@@ -186,16 +194,6 @@ bool CypressTouch::exitBootLoaderMode()
 bool CypressTouch::setSysInfoMode(struct cyttsp_sysinfo_data *_sysDataPtr)
 {
     // Change mode to system info.
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
-    sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
     sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
 
     // Wait a bit.
@@ -219,6 +217,10 @@ bool CypressTouch::setSysInfoMode(struct cyttsp_sysinfo_data *_sysDataPtr)
     // Copy into struct typedef.
     memcpy(_sysDataPtr, _sysInfoArray, sizeof(_sysInfoArray));
 
+    // Do a handshake!
+    handshake();
+    //handshake();
+
     // Check TTS version.
     if (!_sysDataPtr->tts_verh && !_sysDataPtr->tts_verl)
     {
@@ -237,11 +239,25 @@ bool CypressTouch::setSysInfoRegs(struct cyttsp_sysinfo_data *_sysDataPtr)
     _sysDataPtr->tch_tmout = CYPRESS_TOUCH_TCH_TMOUT_DFLT;
     _sysDataPtr->lp_intrvl = CYPRESS_TOUCH_LP_INTRVL_DFLT;
 
+    uint8_t _regs[] = {_sysDataPtr->act_intrvl, _sysDataPtr->tch_tmout, _sysDataPtr->lp_intrvl};
+
     // Send the registers to the I2C. Check if failed. If failed, return false.
-    if (!writeI2CRegs(0x1D, &_sysDataPtr->act_intrvl, 3)) return false;
+    if (!writeI2CRegs(0x1D, _regs, 3)) return false;
+
+    // Wait a little bit.
+    delay(50);
 
     // Everything went ok? Return true for success.
     return true;
+}
+
+void CypressTouch::handshake()
+{
+    // Read the hst_mode register (address 0x00).
+    uint8_t _hstModeReg = 0;
+    readI2CRegs(CYPRESS_TOUCH_BASE_ADDR, &_hstModeReg, 1);
+    _hstModeReg ^= 0x80;
+    writeI2CRegs(CYPRESS_TOUCH_BASE_ADDR, &_hstModeReg, 1);
 }
 
 bool CypressTouch::ping(int _retries)
@@ -250,7 +266,7 @@ bool CypressTouch::ping(int _retries)
     int _retValue = 1;
 
     // Try to ping multiple times in a row (just in case TSC is not in low power mode).
-    // Delay between retires is 100ms (just a wildguess, don't have any documentation).
+    // Delay between retires is 25ms (just a wildguess, don't have any documentation).
     for (int i = 0; i < _retries; i++)
     {
         // Ping the TSC (touchscreen controller) on I2C.
@@ -264,7 +280,7 @@ bool CypressTouch::ping(int _retries)
         }
 
         // TSC not found? Try again, but before retry wait a little bit.
-        delay(100);
+        delay(25);
     }
 
     // Got here? Not good, TSC not found, return error.
@@ -351,10 +367,13 @@ bool CypressTouch::sendCommand(uint8_t _cmd)
     
     // I'm not sure about this?
     // Write I2C sub-address (register address).
-    // Wire.write(CYPRESS_TOUCH_BASE_ADDR);
+    Wire.write(CYPRESS_TOUCH_BASE_ADDR);
 
     // Write command.
     Wire.write(_cmd);
+
+    // Wait a little bit.
+    delay(20);
 
     // Send to I2C!
     return Wire.endTransmission() == 0?true:false;

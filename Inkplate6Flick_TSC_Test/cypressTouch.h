@@ -30,6 +30,8 @@
 #define CYPRESS_TOUCH_SOFT_RST_MODE     0x01
 #define CYPRESS_TOUCH_SYSINFO_MODE      0x10
 #define CYPRESS_TOUCH_OPERATE_MODE      0x00
+#define CYPRESS_TOUCH_LOW_POWER_MODE    0x04
+#define CYPRESS_TOUCH_DEEP_SLEEP_MODE   0x02
 #define CYPRESS_TOUCH_REG_ACT_INTRVL    0x1D
 
 // Active Power state scanning/processing refresh interval
@@ -53,6 +55,8 @@ class CypressTouch
         void printDebug(HardwareSerial *_serial, char *_message);
 
         void printError(HardwareSerial *_serial, char *_message);
+
+        void handshake();
 
     private:
         // Inkplate library internal object pointer.
