@@ -36,43 +36,8 @@ int CypressTouch::begin(TwoWire *_touchI2C, Inkplate *_display)
     // Issue a SW reset.
     sendCommand(0x01);
 
-    // // Read bootloader data.
-    // loadBootloaderRegs(&_blData);
-
-    // // Dump it!
-    // char temp[250];
-    // sprintf(temp, "bl_file=0x%02X", _blData.bl_file);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "bl_status=0x%02X", _blData.bl_status);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "bl_error=0x%02X", _blData.bl_error);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "blver_hi=0x%02X", _blData.blver_hi);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "blver_lo=0x%02X", _blData.blver_lo);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "bld_blver_hi=0x%02X", _blData.bld_blver_hi);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "bld_blver_lo=0x%02X", _blData.bld_blver_lo);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "ttspver_hi=0x%02X", _blData.ttspver_hi);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "ttspver_lo=0x%02X", _blData.ttspver_lo);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "appid_hi=0x%02X", _blData.appid_hi);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "appid_lo=0x%02X", _blData.appid_lo);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "appver_hi=0x%02X", _blData.appver_hi);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "appver_lo=0x%02X", _blData.appver_lo);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "cid_0=0x%02X", _blData.cid_0);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "cid_1=0x%02X", _blData.cid_1);
-    // printDebug(&Serial, temp);
-    // sprintf(temp, "cid_2=0x%02X", _blData.cid_2);
-    // printDebug(&Serial, temp);
+    // Read bootloader data.
+    loadBootloaderRegs(&_blData);
 
     // Exit bootloader mode. - Does not exit bootloader propery!
     if (!exitBootLoaderMode())
@@ -80,29 +45,129 @@ int CypressTouch::begin(TwoWire *_touchI2C, Inkplate *_display)
         printError(&Serial, "Failed to exit bootloader mode!");
     }
 
-    handshake();
-
     // Set mode to system info mode.
     if (!setSysInfoMode(&_sysData))
     {
         printDebug(&Serial, "Failed to enter system info mode");
     }
 
-    handshake();
-
+    // Set system info regs.
     setSysInfoRegs(&_sysData);
 
-    handshake();
-
+    // Switch it into operate mode (also can be in deep sleep mode as well as low power mode).
     sendCommand(CYPRESS_TOUCH_OPERATE_MODE);
 
-    handshake();
-
+    // Set dist value for detection?
     uint8_t _distDefaultValue = 0xF8;
     writeI2CRegs(0x1E, &_distDefaultValue, 1);
 
+    // Add interrupt callback.
+    pinMode(36, INPUT);
+    attachInterrupt(digitalPinToInterrupt(36), _touchscreenIntCallback, FALLING);
+
+    // Clear the interrpt flag.
+    _touchscreenIntFlag = false;
+
     // Everything went ok? Return 1 for success.
     return 1;
+}
+
+bool CypressTouch::available()
+{
+    // Return the interrupt flag (interrrupt triggered - new touch data available).
+    return _touchscreenIntFlag != 0?true:false;
+}
+
+bool CypressTouch::getTouchData(struct cypressTouchData *_touchData)
+{
+    // Check for the null-pointer trap.
+    if (_touchData == NULL) return false;
+
+    // Clear touch interrupt flag.
+    _touchscreenIntFlag = false;
+
+    // Clear struct for touchscreen data.
+    memset(_touchData, 0, sizeof(cypressTouchData));
+
+    // Buffer for the I2C registers.
+    uint8_t _regs[32];
+
+    // Read registers for the touch data (32 bytes of data).
+    // If read failed for some reason, return false.
+    if (!readI2CRegs(CYPRESS_TOUCH_BASE_ADDR, _regs, sizeof(_regs))) return false;
+
+    // Send a handshake.
+    handshake();
+
+    // Parse the data!
+    // Data goes as follows:
+    // [1 byte] Handshake bit - Must be written back with xor on last MSB bit for TSC knows that INT has been read.
+    // [1 byte] Something? It changes with every new data. Data is always 0x00, 0x40, 0x80, 0xC0)
+    // [1 byte] Number of fingers detected - Zero, one or two.
+    // [2 bytes] X value position of the finger that has been detected first.
+    // [2 bytes] Y value position of the finger that has been detected first.
+    // [1 byte] Z value or the presusre os the touch on the first finger.
+    // [1 byte] Type of detection - 0 or 255 finger released
+    // [2 bytes] X value position of the finger that has been detected second.
+    // [2 bytes] Y value position of the finger that has been detected second.
+    // [1 byte] Z value or the presusre os the touch on the second finger.
+    _touchData->x[0] = _regs[3] << 8 | _regs[4];
+    _touchData->y[0] = _regs[5] << 8 | _regs[6];
+    _touchData->z[0] = _regs[7];
+    _touchData->x[1] = _regs[9] << 8 | _regs[10];
+    _touchData->y[1] = _regs[11] << 8 | _regs[12];
+    _touchData->z[1] = _regs[13];
+    _touchData->detectionType = _regs[8];
+    _touchData->fingers = _regs[2];
+
+    // Everything went ok? Return true.
+    return true;
+}
+
+void CypressTouch::end()
+{
+    // Detach interrupt.
+    detachInterrupt(36);
+
+    // Clear interrupt flag.
+    _touchscreenIntFlag = false;
+
+    // Disable the power to the touch.
+    power(false);
+}
+
+void CypressTouch::setPowerMode(uint8_t _powerMode)
+{
+
+}
+
+void CypressTouch::scale(struct cypressTouchData *_touchData, uint16_t _xSize, uint16_t _ySize, bool _flipX, bool _flipY, bool _swapXY)
+{
+    // Temp variables for the mapped value.
+    uint16_t _mappedX = 0;
+    uint16_t _mappedY = 0;
+
+    // Map both touch channels.
+    for (int i = 0; i < 2; i++)
+    {
+        // Check for the flip.
+        if (_flipX) _touchData->x[i] = CYPRESS_TOUCH_MAX_X - _touchData->x[i];
+        if (_flipY) _touchData->y[i] = CYPRESS_TOUCH_MAX_Y - _touchData->y[i];
+
+        // Check for X and Y swap.
+        if (_swapXY)
+        {
+            uint16_t _temp = _touchData->x[i];
+            _touchData->x[i] = _touchData->y[i];
+            _touchData->y[i] = _temp;
+        }
+
+        // Map X value.
+        _mappedX = map(_touchData->x[i], 0, CYPRESS_TOUCH_MAX_X, 0, _xSize);
+
+        // Map Y value.
+        _mappedX = map(_touchData->y[i], 0, CYPRESS_TOUCH_MAX_Y, 0, _ySize);
+    }
 }
 
 void CypressTouch::power(bool _pwr)
@@ -147,6 +212,7 @@ void CypressTouch::reset()
 
 void CypressTouch::swReset()
 {
+    // Issue a command for SW reset.
     sendCommand(CYPRESS_TOUCH_SOFT_RST_MODE);
 }
 
@@ -177,8 +243,9 @@ bool CypressTouch::exitBootLoaderMode()
     // Write bootloader settings.
     writeI2CRegs(CYPRESS_TOUCH_BASE_ADDR, _blCommandArry, sizeof(_blCommandArry));
 
-    // Wait a little bit.
-    delay(250);
+    // Wait a little bit - Must be long delay, otherwise setSysInfoMode will fail!
+    // Delay of 150ms will fail - tested!
+    delay(300);
 
     // Get bootloader data.
     struct cyttsp_bootloader_data _bootloaderData;
@@ -197,7 +264,7 @@ bool CypressTouch::setSysInfoMode(struct cyttsp_sysinfo_data *_sysDataPtr)
     sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
 
     // Wait a bit.
-    delay(50);
+    delay(20);
 
     // Buffer for the system info data.
     uint8_t _sysInfoArray[32];
@@ -209,19 +276,13 @@ bool CypressTouch::setSysInfoMode(struct cyttsp_sysinfo_data *_sysDataPtr)
         return false;
     }
 
-    for (int i = 0; i < 32; i++)
-    {
-        Serial.printf("0x%02X%c", _sysInfoArray[i], i != (sizeof(_sysInfoArray) - 1)?',':' ');
-    }
-
     // Copy into struct typedef.
     memcpy(_sysDataPtr, _sysInfoArray, sizeof(_sysInfoArray));
 
     // Do a handshake!
     handshake();
-    //handshake();
 
-    // Check TTS version.
+    // Check TTS version. If is zero, something went wrong.
     if (!_sysDataPtr->tts_verh && !_sysDataPtr->tts_verl)
     {
         printDebug(&Serial, "TTS Version fail!");

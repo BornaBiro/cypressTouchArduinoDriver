@@ -1,85 +1,73 @@
+
+// Include Inkplate library - needed for the I/O expander to power up touchscreen power supply.
 #include "Inkplate.h"
+
+// Include Arduino Wire library.
 #include "Wire.h"
 
+// Innclude custom written library for cypress touch driver.
 #include "cypressTouch.h"
 
+// Create Inkplate object.
 Inkplate display(INKPLATE_1BIT);
+
+// Create object for the Cypress touchscreen used on ED060XC3
 CypressTouch touch;
-
-volatile bool _touchIntFlag = false;
-
-IRAM_ATTR void touchInterrupt()
-{
-    _touchIntFlag = true;
-}
 
 void setup()
 {
+    // Init. serial ycommunication.
     Serial.begin(115200);
+
+    // Send welcome message on the serial sw we know ESP32 is alive.
     touch.printInfo(&Serial, "ESP32 code started");
 
+    // Init. Arduino wire (I2C) library.
     Wire.begin();
+
+    // Print debug message.
     touch.printInfo(&Serial, "Wire init done");
 
+    // Init. Inkplate library for the I/O expander.
     display.begin();
 
+    // Send Inkplate and Wire object pointers into the Cypress touch library.
+    // Init. the library,
     if (!touch.begin(&Wire, &display))
     {
-        touch.printDebug(&Serial, "Touch init failed");
+        // Print error Message if touch init has failed.
+        // This will also halt the code.
+        touch.printError(&Serial, "Touch init failed");
     }
     else
     {
+        // Print debug message.
         touch.printDebug(&Serial, "Touch init ok");
     }
-
-    pinMode(36, INPUT);
-    attachInterrupt(digitalPinToInterrupt(36), touchInterrupt, FALLING);
 }
-
-typedef struct __attribute__((__packed__)) touchData
-{
-    uint16_t x;
-    uint16_t y;
-    uint8_t z;
-};
-
-touchData touchDataReport;
 
 void loop()
 {
-    if (_touchIntFlag)
+    // Check for the new data from the touch.
+    if (touch.available())
     {
-        _touchIntFlag = false;
+        // New data available? Read it!
+        struct cypressTouchData tsData;
 
-        uint8_t myArray[32];
-        memset(myArray, 0, sizeof(myArray));
-
-        Wire.beginTransmission(CPYRESS_TOUCH_I2C_ADDR);
-        Wire.write(CYPRESS_TOUCH_BASE_ADDR);
-        if(Wire.endTransmission() == 0)
+        if (touch.getTouchData(&tsData))
         {
-            Wire.requestFrom(CPYRESS_TOUCH_I2C_ADDR, 32);
-            Wire.readBytes(myArray, sizeof(myArray));
+            char _strBuffer[300];
+            sprintf(_strBuffer, "RAW-> Fingers: %1d CH1_X:%4d CH1_Y:%4d CH1_Z:%3d CH2_X:%4d CH2_Y:%4d CH2_Z:%3d, touchType:%3d", tsData.fingers, tsData.x[0], tsData.y[0], tsData.z[0], tsData.x[1], tsData.y[1], tsData.z[1], tsData.detectionType);
+            touch.printInfo(&Serial, _strBuffer);
 
-            touch.handshake();
-
-            for (int i = 0; i < 32; i++)
-            {
-                Serial.printf("0x%02X%c",myArray[i], i != 31?',':' ');
-            }
-            Serial.println();
-
-            //memcpy(&touchDataReport, &myArray[3], sizeof(touchDataReport));
-            //Serial.printf("Touch: Mode=%3d, Stat=%1d ",myArray[1], myArray[2]);
-            //Serial.printf("Ch1: X=%4d Y=%4d Z=%3d ID=%3d ", myArray[3] << 8 | myArray[4], myArray[5] << 8 | myArray[6], myArray[7], myArray[8]);
-            //Serial.printf("Ch2: X=%4d Y=%4d Z=%3d ID=%3d ", myArray[9] << 8 | myArray[10], myArray[11] << 8 | myArray[12], myArray[13], myArray[14]);
-            //Serial.printf("Gesture: CNT=%3d, ID=%3d\r\n", myArray[15], myArray[16]);
-            // Serial.print("-----------------------------------");
-
-            // Serial.print(myArray[3] << 8 | myArray[4], DEC);
-            // Serial.print(',');
-            // Serial.print(myArray[5] << 8 | myArray[6], DEC);
-            // Serial.println();
+            // Scale it to fit ED060XC3.
+            touch.scale(&tsData, 1024, 758, false, true, true);
+            sprintf(_strBuffer, "Scaled-> Fingers: %1d CH1_X:%4d CH1_Y:%4d CH1_Z:%3d CH2_X:%4d CH2_Y:%4d CH2_Z:%3d, touchType:%3d", tsData.fingers, tsData.x[0], tsData.y[0], tsData.z[0], tsData.x[1], tsData.y[1], tsData.z[1], tsData.detectionType);
+            touch.printInfo(&Serial, _strBuffer);
+        }
+        else
+        {
+            touch.printInfo(&Serial, "Touch data read error");
         }
     }
 }

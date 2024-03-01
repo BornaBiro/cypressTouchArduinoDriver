@@ -42,4 +42,13 @@ struct cyttsp_sysinfo_data {
 	uint8_t lp_intrvl;
 };
 
+struct cypressTouchData
+{
+	uint8_t fingers;
+	uint16_t x[2];
+	uint16_t y[2];
+	uint8_t z[2];
+	uint8_t detectionType;
+};
+
 #endif

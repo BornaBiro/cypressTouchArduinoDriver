@@ -41,6 +41,17 @@
 // Touch timeout for the Active power */
 #define CYPRESS_TOUCH_TCH_TMOUT_DFLT		0xFF /* ms */
 
+// Max X and Y sizes reported by the TSC.
+#define CYPRESS_TOUCH_MAX_X     682
+#define CYPRESS_TOUCH_MAX_Y     1023
+
+// Touch Interrupt related stuff.
+static volatile bool _touchscreenIntFlag = false;
+IRAM_ATTR static void _touchscreenIntCallback()
+{
+    _touchscreenIntFlag = true;
+}
+
 class CypressTouch
 {
     public:
@@ -50,13 +61,21 @@ class CypressTouch
         // Initialization function.
         int begin(TwoWire *_touchI2C, Inkplate *_display);
 
+        bool available();
+
+        bool getTouchData(struct cypressTouchData *_touchData);
+
+        void end();
+
+        void setPowerMode(uint8_t _powerMode);
+
+        void scale(struct cypressTouchData *_touchData, uint16_t _xSize, uint16_t _ySize, bool _flipX, bool _flipY, bool _swapXY);
+
         void printInfo(HardwareSerial *_serial, char *_message);
 
         void printDebug(HardwareSerial *_serial, char *_message);
 
         void printError(HardwareSerial *_serial, char *_message);
-
-        void handshake();
 
     private:
         // Inkplate library internal object pointer.
@@ -86,6 +105,8 @@ class CypressTouch
         bool setSysInfoRegs(struct cyttsp_sysinfo_data *_sysDataPtr);
 
         bool ping(int _retries = 5);
+
+        void handshake();
 
         void regDump(HardwareSerial *_debugSerialPtr, int _startAddress, int _endAddress);
 
