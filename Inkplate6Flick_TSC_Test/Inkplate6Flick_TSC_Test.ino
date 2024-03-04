@@ -44,6 +44,13 @@ void setup()
         // Print debug message.
         touch.printDebug(&Serial, "Touch init ok");
     }
+
+    // Set low power mode (it periodically reads Touchscreen panel to reduce power.)
+    // Uncomment this to use it in normal mode.
+    if (!touch.setPowerMode(CYPRESS_TOUCH_LOW_POWER_MODE))
+    {
+        touch.printDebug(&Serial, "Power mode set failed");
+    }
 }
 
 void loop()

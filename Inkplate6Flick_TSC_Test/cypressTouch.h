@@ -5,6 +5,7 @@
 // https://github.com/martinezjavier/nook_color/blob/master/cyttsp/
 // https://github.com/torvalds/linux/tree/master/drivers/input/touchscreen
 // https://github.com/torvalds/linux/blob/master/drivers/input/touchscreen/cyttsp_core.c
+// This is rewritten from Linux Kernel code for Arduino to work with Inkplate library.
 
 // Include main Arduino header file.
 #include <Arduino.h>
@@ -59,22 +60,30 @@ class CypressTouch
         CypressTouch();
 
         // Initialization function.
-        int begin(TwoWire *_touchI2C, Inkplate *_display);
+        bool begin(TwoWire *_touchI2C, Inkplate *_display);
 
+        // Check if there is any new touch event detected.
         bool available();
 
+        // Get the new touch event data/report.
         bool getTouchData(struct cypressTouchData *_touchData);
 
+        // Disable touchscreen.
         void end();
 
-        void setPowerMode(uint8_t _powerMode);
+        // Set the proper power mode for the touchscreen controller.
+        bool setPowerMode(uint8_t _powerMode);
 
+        // Scale touch data report to fit screen (and also rotation).
         void scale(struct cypressTouchData *_touchData, uint16_t _xSize, uint16_t _ySize, bool _flipX, bool _flipY, bool _swapXY);
 
+        // Helper function for printing info data on the serial (with [INFO] header and timestamp).
         void printInfo(HardwareSerial *_serial, char *_message);
 
+        // Helper function for printing debug messages to the serial (with [DEBUG] header and timestamp).
         void printDebug(HardwareSerial *_serial, char *_message);
 
+        // Helper function for printig error messages to the serial (with [ERROR] header, timestamp and code halt).
         void printError(HardwareSerial *_serial, char *_message);
 
     private:
@@ -85,40 +94,55 @@ class CypressTouch
         TwoWire *_touchI2CPtr = NULL;
 
         // Bootloader struct typedef.
-        struct cyttsp_bootloader_data _blData;
+        struct cyttspBootloaderData _blData;
 
         // System info data typedef.
-        struct cyttsp_sysinfo_data _sysData;
+        struct cyttspSysinfoData _sysData;
 
+        // Method disables or enables power to the Touchscreen.
         void power(bool _pwr);
 
+        // Methods executes HW reset (with Touchscreen RST pin).
         void reset();
 
+        // Method executes SW reset command for Touchscreen via I2C.
         void swReset();
 
-        bool loadBootloaderRegs(struct cyttsp_bootloader_data *_blDataPtr);
+        // Method loads bootloader register from Touchscreen IC via I2C.
+        bool loadBootloaderRegs(struct cyttspBootloaderData *_blDataPtr);
 
+        // Method forces Touchscreen Controller to exits bootloader mode and executes preloaded FW code.
         bool exitBootLoaderMode();
 
-        bool setSysInfoMode(struct cyttsp_sysinfo_data *_sysDataPtr);
+        // Force Touchscreen Controller into system info mode.
+        bool setSysInfoMode(struct cyttspSysinfoData *_sysDataPtr);
 
-        bool setSysInfoRegs(struct cyttsp_sysinfo_data *_sysDataPtr);
+        // Load system into register into their default values.
+        bool setSysInfoRegs(struct cyttspSysinfoData *_sysDataPtr);
 
+        // Try to ping Touchscreen controller via I2C (I2C test).
         bool ping(int _retries = 5);
 
+        // Do a handshake for Touchscreen Controller to acknowledge successfull touch report read.
         void handshake();
 
+        // Needs to be removed.
         void regDump(HardwareSerial *_debugSerialPtr, int _startAddress, int _endAddress);
 
+        // Helper method for printing debug, info and error messages.
         void printMessage(HardwareSerial *_serial, char *_msgPrefix, char *_message);
 
+        // Helper method for printing timestamp with millis() Arduino function.
         void printTimestamp(HardwareSerial *_serial);
 
         // Low-level I2C stuff.
+        // Send command to the Touchscreen Controller via I2C.
         bool sendCommand(uint8_t _cmd);
 
+        // Read Touchscreen Controller registers from the I2C by using Arduino Wire libary.
         bool readI2CRegs(uint8_t _cmd, uint8_t *_buffer, int _len);
 
+        // Write into Touchscreen Controller registers with I2C by using Arduino Wire library.
         bool writeI2CRegs(uint8_t _cmd, uint8_t *_buffer, int _len);
 };
 

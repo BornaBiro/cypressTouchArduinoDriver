@@ -4,14 +4,29 @@
 // Macro helpers.
 #define GET_BOOTLOADERMODE(reg)		(((reg) & 0x10) >> 4)
 
-// Library constructor.
+/**
+ * @brief Constructor for a new CypressTouch object.
+ * 
+ */
 CypressTouch::CypressTouch()
 {
 
 }
 
 // Initialization function.
-int CypressTouch::begin(TwoWire *_touchI2C, Inkplate *_display)
+/**
+ * @brief   
+ * 
+ * @param       TwoWire *_touchI2C
+ *              Arduino TwoWore object (I2C library). Needed for I2C Touch communication.
+ * @param       Inkplate *_display
+ *              Arduino Inkplate library - Needed fopr PCAL I/O expander for Power MOSFET enable for
+ *              Touchscreen power supply.
+ * @return      bool
+ *              true - Touchscreen Controller initialization ok.
+ *              false - Touchscreen Controller initialization failed.
+ */
+bool CypressTouch::begin(TwoWire *_touchI2C, Inkplate *_display)
 {
     // Copy library objects into the internal ones.
     _displayPtr = _display;
@@ -42,17 +57,20 @@ int CypressTouch::begin(TwoWire *_touchI2C, Inkplate *_display)
     // Exit bootloader mode. - Does not exit bootloader propery!
     if (!exitBootLoaderMode())
     {
-        printError(&Serial, "Failed to exit bootloader mode!");
+        printError(&Serial, "Failed to exit bootloader mode");
     }
 
     // Set mode to system info mode.
     if (!setSysInfoMode(&_sysData))
     {
-        printDebug(&Serial, "Failed to enter system info mode");
+        printError(&Serial, "Failed to enter system info mode");
     }
 
     // Set system info regs.
-    setSysInfoRegs(&_sysData);
+    if (!setSysInfoRegs(&_sysData))
+    {
+        printError(&Serial, "Failed to enter system info registers");
+    }
 
     // Switch it into operate mode (also can be in deep sleep mode as well as low power mode).
     sendCommand(CYPRESS_TOUCH_OPERATE_MODE);
@@ -72,12 +90,33 @@ int CypressTouch::begin(TwoWire *_touchI2C, Inkplate *_display)
     return 1;
 }
 
+/**
+ * @brief       Function check for new touch event.
+ * 
+ * @return      bool
+ *              true - New touch event has been detected. Use getTouchData method to read it.
+ *              false - No new touch data.
+ * 
+ * @note        New touch event is detected by the touchscreen controller interrupt line.
+ */
 bool CypressTouch::available()
 {
     // Return the interrupt flag (interrrupt triggered - new touch data available).
     return _touchscreenIntFlag != 0?true:false;
 }
 
+
+/**
+ * @brief       Get the new touch event data from the touchscreen controller.
+ * 
+ * @param       struct cypressTouchData _touchData
+ *              Pointer to the structure for the touch report data (such as X, Y and
+ *              Z values of each touch channel, nuber of fingers etc.)  
+ * 
+ * @return      bool
+ *              true - Touch data is successfully read and the data is valid.
+ *              false - Touch data read has failed.
+ */
 bool CypressTouch::getTouchData(struct cypressTouchData *_touchData)
 {
     // Check for the null-pointer trap.
@@ -124,6 +163,11 @@ bool CypressTouch::getTouchData(struct cypressTouchData *_touchData)
     return true;
 }
 
+/**
+ * @brief       Disable touchscreen. Detach interrupt, clear interrput flag, disable power to the 
+ *              Touchscreen Controller.
+ * 
+ */
 void CypressTouch::end()
 {
     // Detach interrupt.
@@ -136,14 +180,56 @@ void CypressTouch::end()
     power(false);
 }
 
-void CypressTouch::setPowerMode(uint8_t _powerMode)
-{
 
+/**
+ * @brief       Set power mode of the Touchscreen Controller. There are 3 modes
+ *              CYPRESS_TOUCH_OPERATE_MODE - Normal mode (fast response, higher accuracy, higher power consumption).
+ *                                           Current ~ 15mA.
+ *              CYPRESS_TOUCH_LOW_POWER_MODE - After few seconds of inactivity, TSC goes into low power ode and periodically
+ *                                             goes into operating mode to check for touch event. Current ~4mA.
+ *              CYPRESS_TOUCH_DEEP_SLEEP_MODE - Disable TSC. Current ~25uA.
+ * 
+ * @param       uint8_t _powerMode
+ *              Power mode - Can only be CYPRESS_TOUCH_OPERATE_MODE, CYPRESS_TOUCH_LOW_POWER_MODE or CYPRESS_TOUCH_DEEP_SLEEP_MODE.
+ *              [defined in cypressTouch.h]
+ * 
+ * @return      bool
+ *              true - Power mode is successfully selected.
+ *              false - Power mode select failed.  
+ */
+bool CypressTouch::setPowerMode(uint8_t _powerMode)
+{
+    // Check for the parameters.
+    if ((_powerMode == CYPRESS_TOUCH_DEEP_SLEEP_MODE) || (_powerMode == CYPRESS_TOUCH_LOW_POWER_MODE) || (_powerMode == CYPRESS_TOUCH_OPERATE_MODE))
+    {
+        
+        // Set new power mode setting.
+        return sendCommand(_powerMode);
+    }
+    
+    // Otherwise return false.
+    return false;
 }
 
+/**
+ * @brief       Method scales, flips and swaps X and Y cooridinates to ensure X and Y matches the screen.
+ * 
+ * @param       struct cypressTouchData _touchData
+ *              Defined in cypressTouchTypedefs.h. Filled touch data report. 
+ * @param       uint16_t _xSize
+ *              Screen size in pixels for X axis.
+ * @param       uint16_t _ySize
+ *              Screen size in pixels for Y axis.
+ * @param       bool _flipX
+ *              Flip the direction of the X axis.
+ * @param       bool _flipY 
+ *              Flip the direction of the Y axis.
+ * @param       bool _swapXY
+ *              Swap X and Y cooridinates.
+ */
 void CypressTouch::scale(struct cypressTouchData *_touchData, uint16_t _xSize, uint16_t _ySize, bool _flipX, bool _flipY, bool _swapXY)
 {
-    // Temp variables for the mapped value.
+    // Temp. variables for the mapped value.
     uint16_t _mappedX = 0;
     uint16_t _mappedY = 0;
 
@@ -170,35 +256,47 @@ void CypressTouch::scale(struct cypressTouchData *_touchData, uint16_t _xSize, u
     }
 }
 
+/**
+ * @brief       Enable or disable power to the Touchscreen Controller.
+ * 
+ * @param       bool _pwr
+ *              true - Enable power to the Touchscreen/Touchscreen Controller.
+ *              false - Disable power to the Touchscreen/Touchscreen Controller to reduce power
+ *              consunption in sleep or to do power cycle.
+ */
 void CypressTouch::power(bool _pwr)
 {
     if (_pwr)
     {
         // Enable the power MOSFET.
-        _displayPtr->digitalWriteIO(CYPRESS_TOUCH_PWR_MOS_PIN, LOW, IO_INT_ADDR);
+        _displayPtr->digitalWriteIO(CYPRESS_TOUCH_PWR_MOS_PIN, HIGH, IO_INT_ADDR);
 
         // Wait a little bit before proceeding any further.
-        delay(250);
+        delay(50);
 
         // Set reset pin to high.
         _displayPtr->digitalWriteIO(CYPRESS_TOUCH_RST_PIN, HIGH, IO_INT_ADDR);
 
         // Wait a little bit.
-        delay(10);
+        delay(50);
     }
     else
     {
         // Disable the power MOSFET switch.
-        _displayPtr->digitalWriteIO(CYPRESS_TOUCH_PWR_MOS_PIN, HIGH, IO_INT_ADDR);
+        _displayPtr->digitalWriteIO(CYPRESS_TOUCH_PWR_MOS_PIN, LOW, IO_INT_ADDR);
 
         // Wait a bit to discharge caps.
-        delay(250);
+        delay(50);
 
         // Set reset pin to low.
         _displayPtr->digitalWriteIO(CYPRESS_TOUCH_RST_PIN, LOW, IO_INT_ADDR);
     }
 }
 
+/**
+ * @brief       Method does a HW reset by using RST pin on the Touchscreen/Touchscreen Controller.
+ * 
+ */
 void CypressTouch::reset()
 {
     // Toggle RST line. Loggic low must be at least 1ms, re-init after reset not specified, 10 ms (from Linux kernel).
@@ -210,13 +308,31 @@ void CypressTouch::reset()
     delay(10);
 }
 
+/**
+ * @brief       Method executes a SW reset by using I2C command.
+ * 
+ */
 void CypressTouch::swReset()
 {
     // Issue a command for SW reset.
     sendCommand(CYPRESS_TOUCH_SOFT_RST_MODE);
+
+    // Wait a little bit.
+    delay(20);
 }
 
-bool CypressTouch::loadBootloaderRegs(struct cyttsp_bootloader_data *_blDataPtr)
+/**
+ * @brief       Function reads bootloader registers from the Touchscreen Controller.
+ * 
+ * @param       struct cyttspBootloaderData *_blDataPtr
+ *              Defined in cypressTouchTypedefs.h, pointer to the struct cyttspBootloaderData to
+ *              store bootloader registers data.
+ * 
+ * @return      bool
+ *              true - Loading bootloader data register was successfull.
+ *              false - Loading bootloader data from the registers has failed.
+ */
+bool CypressTouch::loadBootloaderRegs(struct cyttspBootloaderData *_blDataPtr)
 {
     // Bootloader temp. registers array.
     uint8_t _bootloaderData[16];
@@ -229,6 +345,17 @@ bool CypressTouch::loadBootloaderRegs(struct cyttsp_bootloader_data *_blDataPtr)
     return true;
 }
 
+/**
+ * @brief       Method forces Touchscreen Controller to exit bootloader mode and enters normal
+ *              operating mode - to load preloaded firmware (possibly TTSP - TrueTouch Standard Product Firmware).
+ * 
+ * @return      bool
+ *              true - Touchscreen Controller quit bootloader mode and loaded TTSP FW that is currently executing.
+ *              false - Touchscreen Controller failed to exit bootloader mode.
+ * 
+ * @note        It exiting bootloader mode fails reading touch events will fail. Do not go further with the code for the
+ *              Touchscreen.
+ */
 bool CypressTouch::exitBootLoaderMode()
 {
     // Bootloader command array.
@@ -245,10 +372,10 @@ bool CypressTouch::exitBootLoaderMode()
 
     // Wait a little bit - Must be long delay, otherwise setSysInfoMode will fail!
     // Delay of 150ms will fail - tested!
-    delay(300);
+    delay(500);
 
     // Get bootloader data.
-    struct cyttsp_bootloader_data _bootloaderData;
+    struct cyttspBootloaderData _bootloaderData;
     loadBootloaderRegs(&_bootloaderData);
 
     // Check for validity.
@@ -258,7 +385,19 @@ bool CypressTouch::exitBootLoaderMode()
     return true;
 }
 
-bool CypressTouch::setSysInfoMode(struct cyttsp_sysinfo_data *_sysDataPtr)
+/**
+ * @brief       Set Touchscreen Controller into System Info mode.
+ * 
+ * @param       struct cyttspSysinfoData *_sysDataPtr
+ *              Defined cypressTouchTypedefs.h, pointer to the struct for the system info registers.
+ * 
+ * @return      bool
+ *              true - System Info mode usccessfully set.
+ *              false - System Info mode failed.
+ * 
+ * @note        As soon as this fails, stop the Touchscreen from executing, touch data will be invalid. 
+ */
+bool CypressTouch::setSysInfoMode(struct cyttspSysinfoData *_sysDataPtr)
 {
     // Change mode to system info.
     sendCommand(CYPRESS_TOUCH_SYSINFO_MODE);
@@ -272,7 +411,6 @@ bool CypressTouch::setSysInfoMode(struct cyttsp_sysinfo_data *_sysDataPtr)
     // Read the registers.
     if (!readI2CRegs(CYPRESS_TOUCH_BASE_ADDR, _sysInfoArray, sizeof(_sysInfoArray)))
     {
-        printDebug(&Serial, "Failed to read I2C - System info mode");
         return false;
     }
 
@@ -285,7 +423,6 @@ bool CypressTouch::setSysInfoMode(struct cyttsp_sysinfo_data *_sysDataPtr)
     // Check TTS version. If is zero, something went wrong.
     if (!_sysDataPtr->tts_verh && !_sysDataPtr->tts_verl)
     {
-        printDebug(&Serial, "TTS Version fail!");
         return false;
     }
 
@@ -293,7 +430,19 @@ bool CypressTouch::setSysInfoMode(struct cyttsp_sysinfo_data *_sysDataPtr)
     return true;
 }
 
-bool CypressTouch::setSysInfoRegs(struct cyttsp_sysinfo_data *_sysDataPtr)
+/**
+ * @brief       Set System info registers into their default state.
+ * 
+ * @param       struct cyttspSysinfoData *_sysDataPtr
+ *              Defined in cypressTouchTypedefs.h, poinet to the struct for the system info registers.
+ * 
+ * @return      bool
+ *              true - Registers are set successfully.
+ *              false - Setting registers has failed.
+ * 
+ * @note        Stop the tuchscreen code from executing if this fails, touch data will be invalid.
+ */
+bool CypressTouch::setSysInfoRegs(struct cyttspSysinfoData *_sysDataPtr)
 {
     // Modify registers to the default values.
     _sysDataPtr->act_intrvl = CYPRESS_TOUCH_ACT_INTRVL_DFLT;
@@ -306,12 +455,18 @@ bool CypressTouch::setSysInfoRegs(struct cyttsp_sysinfo_data *_sysDataPtr)
     if (!writeI2CRegs(0x1D, _regs, 3)) return false;
 
     // Wait a little bit.
-    delay(50);
+    delay(20);
 
     // Everything went ok? Return true for success.
     return true;
 }
 
+/**
+ * @brief       Method does handshake for the Touchscreen/Touchscreen Controller to confirm successfull read
+ *              new touch report data.
+ * 
+ * @note        Handshake must be done on every new touch event from the Interrupt.
+ */
 void CypressTouch::handshake()
 {
     // Read the hst_mode register (address 0x00).
@@ -327,7 +482,7 @@ bool CypressTouch::ping(int _retries)
     int _retValue = 1;
 
     // Try to ping multiple times in a row (just in case TSC is not in low power mode).
-    // Delay between retires is 25ms (just a wildguess, don't have any documentation).
+    // Delay between retires is 20ms (just a wildguess, don't have any documentation).
     for (int i = 0; i < _retries; i++)
     {
         // Ping the TSC (touchscreen controller) on I2C.
@@ -341,13 +496,14 @@ bool CypressTouch::ping(int _retries)
         }
 
         // TSC not found? Try again, but before retry wait a little bit.
-        delay(25);
+        delay(20);
     }
 
     // Got here? Not good, TSC not found, return error.
     return false;
 }
 
+// Needs to be removed.
 void CypressTouch::regDump(HardwareSerial *_debugSerialPtr, int _startAddress, int _endAddress)
 {
     // Check the size of the request. Reading more than 32 bytes over I2C is not possible.
@@ -382,6 +538,16 @@ void CypressTouch::regDump(HardwareSerial *_debugSerialPtr, int _startAddress, i
     }
 }
 
+/**
+ * @brief       Prints out a debug message on the selected serial class.
+ * 
+ * @param       HardwareSerial *_serial
+ *              Pointer to the Serial object.
+ * @param       char *_msgPrefix
+ *              Message prefix or header that will be printed before the message.
+ * @param       char *_message
+ *              Message that needs to be printed on the seleced serial.
+ */
 void CypressTouch::printMessage(HardwareSerial *_serial, char *_msgPrefix, char *_message)
 {
     printTimestamp(_serial);
@@ -392,16 +558,50 @@ void CypressTouch::printMessage(HardwareSerial *_serial, char *_msgPrefix, char 
     _serial->println();
 }
 
+/**
+ * @brief       Print info message with the timestap.
+ *              ex. 00:00:05;991 - [INFO]: Some info message
+ * 
+ * @param       HardwareSerial *_serial
+ *              Pointer to the Serial object.
+ * @param       char *_message
+ *              Message that needs to be printed on the seleced serial.
+ * 
+ * @note        New line will be added at the end of each message.
+ */
 void CypressTouch::printInfo(HardwareSerial *_serial, char *_message)
 {
     printMessage(_serial, "INFO", _message);
 }
 
+/**
+ * @brief       Print debug message with the timestap.
+ *              ex. 00:00:01;280 - [DEBUG]: Some debug information.
+ * 
+ * @param       HardwareSerial *_serial
+ *              Pointer to the Serial object.
+ * @param       char *_message
+ *              Message that needs to be printed on the seleced serial.
+ * 
+ * @note        New line will be added at the end of each message.
+ */
 void CypressTouch::printDebug(HardwareSerial *_serial, char *_message)
 {
     printMessage(_serial, "DEBUG", _message);
 }
 
+/**
+ * @brief       Print error message with the timestap.
+ *              ex. 00:00:01;280 - [ERROR]: System failure, halting!
+ * 
+ * @param       HardwareSerial *_serial
+ *              Pointer to the Serial object.
+ * @param       char *_message
+ *              Message that needs to be printed on the seleced serial.
+ * 
+ * @note        New line will be added at the end of each message. It will also stop
+ *              the code from executing.
+ */
 void CypressTouch::printError(HardwareSerial *_serial, char *_message)
 {
     printMessage(_serial, "ERROR", _message);
@@ -411,6 +611,14 @@ void CypressTouch::printError(HardwareSerial *_serial, char *_message)
     }
 }
 
+/**
+ * @brief       Helper function for the printing timestamp on the serial.
+ *              Timestamp source is Arduino millis() function.
+ *              Format is: HH:MM:SS;MSS 
+ * 
+ * @param       HardwareSerial *_serial
+ *              Pointer to the Serial object.
+ */
 void CypressTouch::printTimestamp(HardwareSerial *_serial)
 {
     unsigned long _millisCapture = millis();
@@ -421,6 +629,17 @@ void CypressTouch::printTimestamp(HardwareSerial *_serial)
     _serial->printf("%02d:%02d:%02d;%03d", _h, _m, _s, _ms);
 }
 
+// -----------------------------LOW level I2C functions-----------------------------
+
+/**
+ * @brief       Method sends I2C command to the Touchscreen Controller IC.
+ * 
+ * @param       uint8_t _cmd
+ *              I2C command for the Touchscreen Controller IC. 
+ * 
+ * @return      true - Command is succesfully send and executed.
+ *              false - I2C command send failed.
+ */
 bool CypressTouch::sendCommand(uint8_t _cmd)
 {
     // Init I2C communication.
@@ -440,6 +659,22 @@ bool CypressTouch::sendCommand(uint8_t _cmd)
     return Wire.endTransmission() == 0?true:false;
 }
 
+/**
+ * @brief       Method reads multiple I2C registers at once from the touchscreen controller and save them into buffer.
+ * 
+ * @param       uint8_t _cmd
+ *              I2C command for the Touchscreen Controller.
+ * @param       uint8_t *_buffer
+ *              Buffer for the bytes read from the Touchscreen Controller. 
+ * @param       int _len
+ *              How many bytes to read from the I2C (Touchscreen Controller).
+ * 
+ * @return      bool
+ *              true - I2C register read was successfull.
+ *              false - I2C register read failed.
+ * 
+ * @note        More than 32 bytes can be read at the same time.
+ */
 bool CypressTouch::readI2CRegs(uint8_t _cmd, uint8_t *_buffer, int _len)
 {
     // Init I2C communication!
@@ -478,6 +713,22 @@ bool CypressTouch::readI2CRegs(uint8_t _cmd, uint8_t *_buffer, int _len)
     return true;
 }
 
+/**
+ * @brief       Method writes multiple I2C registers at once to the touchscreen controller from buffer provided.
+ * 
+ * @param       uint8_t _cmd
+ *              I2C command for the Touchscreen Controller.
+ * @param       uint8_t *_buffer
+ *              Buffer for the bytes that needs to be sent to the Touchscreen Controller. 
+ * @param       int _len
+ *              How many bytes to write to the I2C (Touchscreen Controller).
+ * 
+ * @return      bool
+ *              true - I2C register write was successfull.
+ *              false - I2C register write failed.
+ * 
+ * @note        More than 32 bytes can be written at the same time.
+ */
 bool CypressTouch::writeI2CRegs(uint8_t _cmd, uint8_t *_buffer, int _len)
 {
     // Init I2C communication!

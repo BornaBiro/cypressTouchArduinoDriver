@@ -1,7 +1,8 @@
 #ifndef __CYPRESSTOUCHTYPEDEFS_H__
 #define __CYPRESSTOUCHTYPEDEFS_H__
 
-struct cyttsp_bootloader_data {
+// Struct for the bootloader register from the Touchscreen Controller.
+struct cyttspBootloaderData {
 	uint8_t bl_file;
 	uint8_t bl_status;
 	uint8_t bl_error;
@@ -20,7 +21,8 @@ struct cyttsp_bootloader_data {
 	uint8_t cid_2;
 };
 
-struct cyttsp_sysinfo_data {
+// Struct for the system info data registers from the Touchscreen Controller.
+struct cyttspSysinfoData {
 	uint8_t hst_mode;
 	uint8_t mfg_stat;
 	uint8_t mfg_cmd;
@@ -42,6 +44,7 @@ struct cyttsp_sysinfo_data {
 	uint8_t lp_intrvl;
 };
 
+// Custom struct for touch report data.
 struct cypressTouchData
 {
 	uint8_t fingers;
