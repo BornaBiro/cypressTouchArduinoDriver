@@ -47,9 +47,19 @@ void setup()
 
     // Set low power mode (it periodically reads Touchscreen panel to reduce power.)
     // Uncomment this to use it in normal mode.
-    if (!touch.setPowerMode(CYPRESS_TOUCH_LOW_POWER_MODE))
+    if (!touch.setPowerMode(CYPRESS_TOUCH_OPERATE_MODE))
     {
         touch.printDebug(&Serial, "Power mode set failed");
+    }
+
+    Wire.beginTransmission(CPYRESS_TOUCH_I2C_ADDR);
+    Wire.write(0x00);
+    Wire.endTransmission();
+
+    Wire.requestFrom(CPYRESS_TOUCH_I2C_ADDR, 32);
+    for (int i = 0; i < 32; i++)
+    {
+        Serial.printf("0x%02X, ", Wire.read());
     }
 }
 

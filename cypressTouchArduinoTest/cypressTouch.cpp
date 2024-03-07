@@ -28,6 +28,9 @@ CypressTouch::CypressTouch()
  */
 bool CypressTouch::begin(TwoWire *_touchI2C, Inkplate *_display)
 {
+    // Check for the null-pointer trap.
+    if (_touchI2C == NULL || _display == NULL) return false;
+
     // Copy library objects into the internal ones.
     _displayPtr = _display;
     _touchI2CPtr = _touchI2C;
@@ -202,7 +205,6 @@ bool CypressTouch::setPowerMode(uint8_t _powerMode)
     // Check for the parameters.
     if ((_powerMode == CYPRESS_TOUCH_DEEP_SLEEP_MODE) || (_powerMode == CYPRESS_TOUCH_LOW_POWER_MODE) || (_powerMode == CYPRESS_TOUCH_OPERATE_MODE))
     {
-        
         // Set new power mode setting.
         return sendCommand(_powerMode);
     }
@@ -524,16 +526,16 @@ void CypressTouch::regDump(HardwareSerial *_debugSerialPtr, int _startAddress, i
     }
 
     // Make a request!
-    Wire.beginTransmission(CPYRESS_TOUCH_I2C_ADDR);
-    Wire.write(_startAddress);
-    Wire.endTransmission();
-    Wire.requestFrom(CPYRESS_TOUCH_I2C_ADDR, _len);
+    _touchI2CPtr->beginTransmission(CPYRESS_TOUCH_I2C_ADDR);
+    _touchI2CPtr->write(_startAddress);
+    _touchI2CPtr->endTransmission();
+    _touchI2CPtr->requestFrom(CPYRESS_TOUCH_I2C_ADDR, _len);
     
     // Print them!
     for (int i = _startAddress; i < _endAddress; i++)
     {
         char _tempArray[40];
-        sprintf(_tempArray, "REG 0x%02X, Value: 0x%02X", i, Wire.read());
+        sprintf(_tempArray, "REG 0x%02X, Value: 0x%02X", i, _touchI2CPtr->read());
         printDebug(_debugSerialPtr, _tempArray);
     }
 }
@@ -647,16 +649,16 @@ bool CypressTouch::sendCommand(uint8_t _cmd)
     
     // I'm not sure about this?
     // Write I2C sub-address (register address).
-    Wire.write(CYPRESS_TOUCH_BASE_ADDR);
+    _touchI2CPtr->write(CYPRESS_TOUCH_BASE_ADDR);
 
     // Write command.
-    Wire.write(_cmd);
+    _touchI2CPtr->write(_cmd);
 
     // Wait a little bit.
     delay(20);
 
     // Send to I2C!
-    return Wire.endTransmission() == 0?true:false;
+    return _touchI2CPtr->endTransmission() == 0?true:false;
 }
 
 /**
@@ -678,14 +680,14 @@ bool CypressTouch::sendCommand(uint8_t _cmd)
 bool CypressTouch::readI2CRegs(uint8_t _cmd, uint8_t *_buffer, int _len)
 {
     // Init I2C communication!
-    Wire.beginTransmission(CPYRESS_TOUCH_I2C_ADDR);
+    _touchI2CPtr->beginTransmission(CPYRESS_TOUCH_I2C_ADDR);
 
     // I'm not sure about this?
     // Send command byte.
-    Wire.write(_cmd);
+    _touchI2CPtr->write(_cmd);
 
     // Write reg to the I2C! If I2C send has failed, return false.
-    if (Wire.endTransmission() != 0)
+    if (_touchI2CPtr->endTransmission() != 0)
     {
         return false;
     }
@@ -699,8 +701,8 @@ bool CypressTouch::readI2CRegs(uint8_t _cmd, uint8_t *_buffer, int _len)
         int _i2cLen = _len > 32?32:_len;
 
         // Read the bytes from the I2C.
-        Wire.requestFrom(CPYRESS_TOUCH_I2C_ADDR, _i2cLen);
-        Wire.readBytes(_buffer + _index, _i2cLen);
+        _touchI2CPtr->requestFrom(CPYRESS_TOUCH_I2C_ADDR, _i2cLen);
+        _touchI2CPtr->readBytes(_buffer + _index, _i2cLen);
         
         // Update the buffer index position.
         _index += _i2cLen;
@@ -732,17 +734,17 @@ bool CypressTouch::readI2CRegs(uint8_t _cmd, uint8_t *_buffer, int _len)
 bool CypressTouch::writeI2CRegs(uint8_t _cmd, uint8_t *_buffer, int _len)
 {
     // Init I2C communication!
-    Wire.beginTransmission(CPYRESS_TOUCH_I2C_ADDR);
+    _touchI2CPtr->beginTransmission(CPYRESS_TOUCH_I2C_ADDR);
 
     // I'm not sure about this?
     // Send command byte.
-    Wire.write(_cmd);
+    _touchI2CPtr->write(_cmd);
 
     // Write data.
-    Wire.write(_buffer, _len);
+    _touchI2CPtr->write(_buffer, _len);
 
     // Write reg to the I2C! If I2C send has failed, return false.
-    if (Wire.endTransmission() != 0)
+    if (_touchI2CPtr->endTransmission() != 0)
     {
         return false;
     }
